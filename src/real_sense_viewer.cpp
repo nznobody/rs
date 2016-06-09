@@ -54,6 +54,9 @@
 #include "real_sense_grabber.h"
 #include <opencv2\opencv.hpp>
 
+#include <windows.h>	//Deleting Files
+#include <Shellapi.h>	//Delete Files
+
 using namespace pcl::console;
 
 void
@@ -232,6 +235,20 @@ private:
 	{
 		if (event.keyDown())
 		{
+			if (event.getKeyCode() == 'd' || event.getKeyCode() == 'd')
+			{
+				//Delete folder contents
+				pcl::console::print_info("Deleting ALL output files\n");
+				SHFILEOPSTRUCTW op = { 0 };
+				op.wFunc = FO_DELETE;
+				op.fFlags = FOF_FILESONLY | FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOERRORUI;
+				op.pFrom = L"out\\rect_color\\*.*\0";
+				SHFileOperationW(&op);
+				op.pFrom = L"out\\depth\\*.*\0";
+				SHFileOperationW(&op);
+				op.pFrom = L"out\\clouds\\*.*\0";
+				SHFileOperationW(&op);
+			}
 			if (event.getKeyCode() == 'c' || event.getKeyCode() == 'C')
 			{
 				recording_ = !recording_;

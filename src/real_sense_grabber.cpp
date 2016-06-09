@@ -442,7 +442,7 @@ pcl::RealSenseGrabber::run ()
 			os.str("");
 			os.clear();
 			os << "out//clouds//cloud_" << std::setw(4) << std::setfill('0') << imageCount_ << ".pcd";
-			pcl::io::savePCDFile(os.str(), *xyzrgba_cloud.get(), false);
+			pcl::io::savePCDFile(os.str(), *xyzrgba_cloud.get(), true);
 			//END
 			imageCount_++;
 		}
