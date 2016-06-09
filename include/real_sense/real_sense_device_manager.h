@@ -144,6 +144,9 @@ namespace pcl
           inline PXCCapture::Device&
           getPXCDevice () { return (*device_); }
 
+		  inline PXCCaptureManager&
+			getPXCCaptureManager() { return (*cm_); }
+
           /** Reset the state of given device by releasing and capturing again. */
           static void
           reset (RealSenseDevice::Ptr& device)
@@ -159,6 +162,7 @@ namespace pcl
 
           std::string device_id_;
           boost::shared_ptr<PXCCapture> capture_;
+		  boost::shared_ptr<PXCCaptureManager> cm_;
           boost::shared_ptr<PXCCapture::Device> device_;
 
           RealSenseDevice (const std::string& id) : device_id_ (id) { };

@@ -214,6 +214,7 @@ pcl::io::real_sense::RealSenseDeviceManager::capture (DeviceInfo& device_info)
   {
     RealSenseDevice::Ptr device (new RealSenseDevice (device_info.serial));
     device->capture_ = createPXCCapture (*session_, device_info.iuid);
+	device->cm_ = createPXCCaptureManager(*session_);
     device->device_ = createPXCCaptureDevice (*device->capture_, device_info.didx);
     device_info.device_ptr = device;
     return device;

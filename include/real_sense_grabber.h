@@ -110,6 +110,8 @@ namespace pcl
 
         /** Set desired framerate, depth and color resolution. */
         Mode (unsigned int fps, unsigned int depth_width, unsigned int depth_height, unsigned int color_width, unsigned int color_height);
+
+		bool operator==(const pcl::RealSenseGrabber::Mode& m1) const;
       };
 
       enum TemporalFilteringType
@@ -180,6 +182,10 @@ namespace pcl
       /** Disable temporal filtering. */
       void
       disableTemporalFiltering ();
+
+	  /** Set recording of depth + color. */
+	  void
+	  setRecording(bool record);
 
       /** Get the serial number of device captured by the grabber. */
       const std::string&
@@ -261,6 +267,13 @@ namespace pcl
       /// Indicates whether there are subscribers for PointXYZRGBA signal,
       /// computed and stored on start()
       bool need_xyzrgba_;
+
+	  /// Indicated if the stream is to be recorded or not.
+	  /// Potentially requires camera re-start
+	  bool record_;
+
+	  /// Indicates the current image number being saved
+	  size_t	imageCount_;
 
       EventFrequency frequency_;
       mutable boost::mutex fps_mutex_;

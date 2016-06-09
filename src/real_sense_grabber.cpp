@@ -35,6 +35,7 @@
  *
  */
 
+#include <sstream>
 #include <boost/lexical_cast.hpp>
 
 #include <pxcimage.h>
@@ -44,6 +45,10 @@
 
 #include <pcl/common/io.h>
 #include <pcl/common/time.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+
+#include <opencv2\opencv.hpp>
 
 #include "real_sense_grabber.h"
 #include "real_sense/real_sense_device_manager.h"
@@ -52,6 +57,7 @@
 
 using namespace pcl::io;
 using namespace pcl::io::real_sense;
+using namespace cv;
 
 /* Helper function to convert a PXCPoint3DF32 point into a PCL point.
  * Takes care of unit conversion (PXC point coordinates are in millimeters)
@@ -71,6 +77,8 @@ convertPoint (const PXCPoint3DF32& src, T& tgt)
     tgt.z = src.z / 1000.0;
   }
 }
+
+void ConvertPXCImageToOpenCVMat(PXCImage *inImg, Mat *outImg);
 
 pcl::RealSenseGrabber::Mode::Mode ()
 : fps (0), depth_width (0), depth_height (0), color_width (0), color_height (0)
@@ -102,14 +110,13 @@ pcl::RealSenseGrabber::Mode::Mode (unsigned int f, unsigned int dw, unsigned int
 {
 }
 
-bool
-operator== (const pcl::RealSenseGrabber::Mode& m1, const pcl::RealSenseGrabber::Mode& m2)
+bool	pcl::RealSenseGrabber::Mode::operator== (const pcl::RealSenseGrabber::Mode& m1) const
 {
-  return (m1.fps == m2.fps &&
-          m1.depth_width == m2.depth_width &&
-          m1.depth_height == m2.depth_height &&
-          m1.color_width == m2.color_width &&
-          m1.color_height == m2.color_height);
+  return (m1.fps == this->fps &&
+          m1.depth_width == this->depth_width &&
+          m1.depth_height == this->depth_height &&
+          m1.color_width == this->color_width &&
+          m1.color_height == this->color_height);
 }
 
 pcl::RealSenseGrabber::RealSenseGrabber (const std::string& device_id, const Mode& mode, bool strict)
@@ -120,6 +127,8 @@ pcl::RealSenseGrabber::RealSenseGrabber (const std::string& device_id, const Mod
 , temporal_filtering_window_size_ (1)
 , mode_requested_ (mode)
 , strict_ (strict)
+, record_ (false)
+, imageCount_ (0)
 {
   if (device_id == "")
     device_ = RealSenseDeviceManager::getInstance ()->captureDevice ();
@@ -157,7 +166,7 @@ pcl::RealSenseGrabber::start ()
       profile.depth.imageInfo.width = mode_selected_.depth_width;
       profile.depth.imageInfo.height = mode_selected_.depth_height;
       profile.depth.imageInfo.format = PXCImage::PIXEL_FORMAT_DEPTH;
-      profile.depth.options = PXCCapture::Device::STREAM_OPTION_ANY;
+      profile.depth.options = PXCCapture::Device::STREAM_OPTION_STRONG_STREAM_SYNC;	//Enable H/W Synchronisation 
       if (need_xyzrgba_)
       {
         profile.color.frameRate.max = mode_selected_.fps;
@@ -165,7 +174,7 @@ pcl::RealSenseGrabber::start ()
         profile.color.imageInfo.width = mode_selected_.color_width;
         profile.color.imageInfo.height = mode_selected_.color_height;
         profile.color.imageInfo.format = PXCImage::PIXEL_FORMAT_RGB32;
-        profile.color.options = PXCCapture::Device::STREAM_OPTION_ANY;
+        profile.color.options = PXCCapture::Device::STREAM_OPTION_STRONG_STREAM_SYNC; //Enable H/W Synchronisation 
       }
       device_->getPXCDevice ().SetStreamProfileSet (&profile);
       if (!device_->getPXCDevice ().IsStreamProfileSetValid (&profile))
@@ -234,6 +243,11 @@ void
 pcl::RealSenseGrabber::disableTemporalFiltering ()
 {
   enableTemporalFiltering (RealSense_None, 1);
+}
+
+void pcl::RealSenseGrabber::setRecording(bool record)
+{
+	record_ = record;
 }
 
 const std::string&
@@ -369,7 +383,8 @@ pcl::RealSenseGrabber::run ()
       {
         PXCImage::ImageData data;
         PXCImage* mapped = projection->CreateColorImageMappedToDepth (sample.depth, sample.color);
-        mapped->AcquireAccess (PXCImage::ACCESS_READ, &data);
+
+		mapped->AcquireAccess(PXCImage::ACCESS_READ, &data);
         uint32_t* d = reinterpret_cast<uint32_t*> (data.planes[0]);
         if (need_xyz_)
         {
@@ -402,10 +417,39 @@ pcl::RealSenseGrabber::run ()
             }
           }
         }
+
+		//Handle Saving
+		if (record_)
+		{
+			std::ostringstream os;
+			//Save RGB
+			Mat	saveFileRGB;
+			ConvertPXCImageToOpenCVMat(mapped, &saveFileRGB);
+			os.str("");
+			os.clear();
+			os << "out//rect_color//img_" << std::setw(4) << std::setfill('0') << imageCount_ << ".png";
+			imwrite(os.str(), saveFileRGB);
+			//END
+			//Save depth
+			Mat	saveFileDepth;
+			ConvertPXCImageToOpenCVMat(sample.depth, &saveFileDepth);
+			os.str("");
+			os.clear();
+			os << "out//depth//img_" << std::setw(4) << std::setfill('0') << imageCount_ << ".png";
+			imwrite(os.str(), saveFileDepth);
+			//END
+			//Save PointCloud (PCD)
+			os.str("");
+			os.clear();
+			os << "out//clouds//cloud_" << std::setw(4) << std::setfill('0') << imageCount_ << ".pcd";
+			pcl::io::savePCDFile(os.str(), *xyzrgba_cloud.get(), false);
+			//END
+			imageCount_++;
+		}
+
         mapped->ReleaseAccess (&data);
         mapped->Release ();
       }
-
       if (need_xyzrgba_)
         point_cloud_rgba_signal_->operator () (xyzrgba_cloud);
       if (need_xyz_)
@@ -486,4 +530,66 @@ pcl::RealSenseGrabber::createDepthBuffer ()
     break;
   }
   }
+}
+
+
+void ConvertPXCImageToOpenCVMat(PXCImage *inImg, Mat *outImg) {
+	int cvDataType;
+	int cvDataWidth;
+
+
+	PXCImage::ImageData data;
+	inImg->AcquireAccess(PXCImage::ACCESS_READ, &data);
+	PXCImage::ImageInfo imgInfo = inImg->QueryInfo();
+
+	switch (data.format) {
+		/* STREAM_TYPE_COLOR */
+	case PXCImage::PIXEL_FORMAT_YUY2: /* YUY2 image  */
+	case PXCImage::PIXEL_FORMAT_NV12: /* NV12 image */
+		throw(0); // Not implemented
+	case PXCImage::PIXEL_FORMAT_RGB32: /* BGRA layout on a little-endian machine */
+		cvDataType = CV_8UC4;
+		cvDataWidth = 4;
+		break;
+	case PXCImage::PIXEL_FORMAT_RGB24: /* BGR layout on a little-endian machine */
+		cvDataType = CV_8UC3;
+		cvDataWidth = 3;
+		break;
+	case PXCImage::PIXEL_FORMAT_Y8:  /* 8-Bit Gray Image, or IR 8-bit */
+		cvDataType = CV_8U;
+		cvDataWidth = 1;
+		break;
+
+		/* STREAM_TYPE_DEPTH */
+	case PXCImage::PIXEL_FORMAT_DEPTH: /* 16-bit unsigned integer with precision mm. */
+	case PXCImage::PIXEL_FORMAT_DEPTH_RAW: /* 16-bit unsigned integer with device specific precision (call device->QueryDepthUnit()) */
+		cvDataType = CV_16U;
+		cvDataWidth = 2;
+		break;
+	case PXCImage::PIXEL_FORMAT_DEPTH_F32: /* 32-bit float-point with precision mm. */
+		cvDataType = CV_32F;
+		cvDataWidth = 4;
+		break;
+
+		/* STREAM_TYPE_IR */
+	case PXCImage::PIXEL_FORMAT_Y16:          /* 16-Bit Gray Image */
+		cvDataType = CV_16U;
+		cvDataWidth = 2;
+		break;
+	case PXCImage::PIXEL_FORMAT_Y8_IR_RELATIVE:    /* Relative IR Image */
+		cvDataType = CV_8U;
+		cvDataWidth = 1;
+		break;
+	}
+
+	// suppose that no other planes
+	if (data.planes[1] != NULL) throw(0); // not implemented
+										  // suppose that no sub pixel padding needed
+	if (data.pitches[0] % cvDataWidth != 0) throw(0); // not implemented
+
+	outImg->create(imgInfo.height, data.pitches[0] / cvDataWidth, cvDataType);
+
+	memcpy(outImg->data, data.planes[0], imgInfo.height*imgInfo.width*cvDataWidth * sizeof(pxcBYTE));
+
+	inImg->ReleaseAccess(&data);
 }
